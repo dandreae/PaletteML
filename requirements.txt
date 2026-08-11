@@ -1,0 +1,25 @@
+# --- core numerical / ML stack ---
+numpy
+scipy
+scikit-learn
+pandas
+
+# --- image handling + perceptual color space (rgb2lab, etc.) ---
+Pillow
+scikit-image
+
+# --- plotting for reports / evaluation figures ---
+matplotlib
+
+# --- API + web ---
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+
+# --- dataset acquisition ---
+requests
+tqdm
+
+# --- editable install of src/paletteml ---
+-e .

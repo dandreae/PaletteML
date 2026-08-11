@@ -1,0 +1,10 @@
+-r requirements.txt
+
+pytest
+pytest-cov
+httpx  # required by fastapi.testclient.TestClient
+ruff
+black
+mypy
+ipykernel
+jupyter
