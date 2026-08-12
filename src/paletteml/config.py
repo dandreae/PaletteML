@@ -18,7 +18,11 @@ REPORTS_DIR = PROJECT_ROOT / "reports"
 
 # --- color extraction ---
 # Number of dominant colors (K-Means clusters) to extract per painting.
-N_DOMINANT_COLORS = 6
+N_DOMINANT_COLORS = 5
+
+# Longest side (px) images are downscaled to before clustering pixels.
+# Clustering doesn't need full resolution; this keeps extraction fast.
+EXTRACTION_MAX_DIMENSION = 256
 
 # --- reproducibility ---
 RANDOM_SEED = 42
