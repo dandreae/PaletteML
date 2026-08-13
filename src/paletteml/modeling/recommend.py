@@ -86,6 +86,31 @@ class CoOccurrenceRecommender:
             cid = self.vocabulary.assign(hex_to_lab(h))
             seed_hex_by_cluster.setdefault(cid, h)
 
+        return self.recommend_from_cluster_ids(
+            seed_cluster_ids, top_n=top_n, seed_hex_by_cluster=seed_hex_by_cluster
+        )
+
+    def recommend_from_cluster_ids(
+        self,
+        seed_cluster_ids: list[int],
+        top_n: int = 5,
+        seed_hex_by_cluster: dict[int, str] | None = None,
+    ) -> list[Recommendation]:
+        """Rank candidates directly from vocabulary cluster ids.
+
+        Same ranking logic as recommend() (see its docstring), skipping
+        hex/Lab seed resolution. Used internally by recommend(), and
+        directly by the evaluation harness (evaluation/adapters.py),
+        which already has cluster ids from encode_palette() — routing
+        those through recommend() would need a lossy
+        cluster_id -> hex -> cluster_id round trip for no benefit.
+        """
+        if not seed_cluster_ids:
+            raise ValueError("recommend_from_cluster_ids() requires at least one seed cluster id")
+        seed_cluster_ids = sorted(set(seed_cluster_ids))
+        if seed_hex_by_cluster is None:
+            seed_hex_by_cluster = {cid: self.vocabulary.entries[cid].hex for cid in seed_cluster_ids}
+
         scored: list[tuple[int, float, list[SeedEvidence]]] = []
         for candidate_id in range(self.vocabulary.size):
             if candidate_id in seed_cluster_ids:

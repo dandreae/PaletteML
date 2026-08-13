@@ -40,7 +40,10 @@ class PopularityBaseline:
         self.co_occurrence = co_occurrence
 
     def recommend(self, top_n: int = 5) -> list[PopularityRecommendation]:
-        order = np.argsort(-self.co_occurrence.color_counts)
+        # stable sort so ties (common with modest data — many colors
+        # sharing the same low count) break by ascending cluster_id
+        # every time, rather than depending on sort-algorithm internals
+        order = np.argsort(-self.co_occurrence.color_counts, kind="stable")
         n_artworks = self.co_occurrence.n_artworks
 
         results = []
