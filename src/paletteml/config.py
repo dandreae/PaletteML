@@ -15,6 +15,7 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 EXTERNAL_DATA_DIR = DATA_DIR / "external"
 MODELS_DIR = PROJECT_ROOT / "models"
 REPORTS_DIR = PROJECT_ROOT / "reports"
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
 
 # --- color extraction ---
 # Number of dominant colors (K-Means clusters) to extract per painting.

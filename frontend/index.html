@@ -2,23 +2,123 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PaletteML</title>
+  <meta
+    name="description"
+    content="PaletteML learns color relationships from real paintings and recommends colors that work well together."
+  />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!--
-    TODO: minimal UI once the API exists:
-      - a color picker (or hex input) for the seed color / partial palette
-      - a "Recommend" button calling POST /recommend on the FastAPI backend
-      - swatches rendering the returned suggestions
-      - optionally, thumbnails of the source paintings a suggestion came
-        from, for interpretability
+  <header class="site-header">
+    <div class="wrap">
+      <p class="eyebrow">PaletteML</p>
+      <h1 class="headline">Color relationships, learned from real paintings.</h1>
+      <p class="subtitle">
+        Pick a color and get companion colors recommended by a model trained on
+        dominant colors extracted from museum artwork — not a color-wheel rule,
+        not a language model.
+      </p>
+    </div>
+  </header>
 
-    Deliberately plain HTML/CSS/JS (no framework/build step) to keep
-    this a backend+ML portfolio piece, not a frontend project.
-  -->
-  <h1>PaletteML</h1>
-  <p>UI not yet implemented.</p>
+  <main class="wrap">
+    <section class="input-panel" aria-labelledby="input-heading">
+      <h2 id="input-heading" class="panel-heading">Choose a color</h2>
+
+      <div class="seed-input-row">
+        <input type="color" id="color-picker" value="#b23a2f" aria-label="Pick a color" />
+        <input
+          type="text"
+          id="hex-input"
+          placeholder="#b23a2f"
+          maxlength="7"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Hex color code"
+        />
+        <button type="button" id="add-seed-btn" class="secondary-btn">Add color</button>
+      </div>
+      <p class="input-hint" id="hex-error" role="alert"></p>
+
+      <div class="seed-chips" id="seed-chips" aria-live="polite"></div>
+
+      <div class="controls-row">
+        <div class="control">
+          <label for="top-n">Recommendations</label>
+          <input type="number" id="top-n" min="1" max="20" value="5" />
+        </div>
+
+        <label class="compare-toggle">
+          <input type="checkbox" id="compare-toggle" />
+          Compare models
+        </label>
+
+        <button type="button" id="generate-btn" class="primary-btn">Generate Palette</button>
+      </div>
+    </section>
+
+    <section class="results-panel" id="results-panel" aria-live="polite">
+      <p class="status-message">Add a color and click “Generate Palette” to see recommendations.</p>
+    </section>
+
+    <section class="about" id="about" aria-labelledby="about-heading">
+      <h2 id="about-heading">How this works</h2>
+      <ol class="pipeline-steps">
+        <li>
+          <strong>Dominant colors</strong> are extracted from real paintings by clustering
+          each image's pixels in CIELAB space — a color space designed so distance
+          between colors tracks human-perceived difference.
+        </li>
+        <li>
+          Every extracted color is mapped onto a shared <strong>color vocabulary</strong>
+          — a fixed set of representative colors found with K-Means over thousands
+          of dominant colors pooled across the training paintings.
+        </li>
+        <li>
+          <strong>PPMI</strong> (positive pointwise mutual information) measures which
+          vocabulary colors tend to appear together in the same painting, more often
+          than chance — the raw signal for "these colors go together."
+        </li>
+        <li>
+          <strong>SVD</strong> factorizes that co-occurrence structure into a
+          lower-dimensional embedding, so colors with similar relationships to the
+          rest of the vocabulary end up close together — even pairs that never
+          directly co-occurred in the training set.
+        </li>
+        <li>
+          Recommendations are ranked by <strong>cosine similarity</strong> in that
+          learned embedding space, seeded by whichever color(s) you choose above.
+        </li>
+      </ol>
+
+      <h3 class="about-subheading">Evaluation</h3>
+      <p>
+        The model was evaluated with a held-out, leave-one-color-out test against two
+        baselines: a <strong>popularity</strong> baseline (always recommend the most
+        common colors) and a <strong>random</strong> baseline. Of the approaches
+        tested, the SVD embedding produced the strongest results and improved on the
+        direct PPMI/co-occurrence model — though that improvement was not
+        statistically significant at this evaluation's sample size. Both learned
+        models clearly outperformed random. Full methodology and numbers are in the
+        repository's evaluation report, linked below.
+      </p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>PaletteML — a portfolio machine-learning project. Not affiliated with any museum.</p>
+      <nav class="project-links">
+        <a href="https://github.com/dandreae/Palette" target="_blank" rel="noopener noreferrer">GitHub repository</a>
+        <span aria-hidden="true">·</span>
+        <a href="/docs" target="_blank" rel="noopener noreferrer">API docs</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

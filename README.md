@@ -123,7 +123,8 @@ src/paletteml/
                       see "Deploying to Render" below
 
 scripts/              CLI entry points: build_dataset.py, train.py, evaluate.py, recommend.py
-frontend/             Not yet built
+frontend/             index.html, style.css, app.js, config.js, app.test.js —
+                      plain HTML/CSS/JS, no build step, served by the API (see below)
 data/                 raw/ processed/ external/  (gitignored, regenerable via scripts/build_dataset.py)
 models/               Trained artifacts: color_vocabulary.json, co_occurrence.json,
                       color_embedding.json — small (tens of KB), committed to git,
@@ -164,6 +165,7 @@ already committed, or regenerate with `python scripts/train.py`):
 
 ```bash
 uvicorn paletteml.api.main:app --reload
+# app  http://127.0.0.1:8000/          -> the frontend
 # GET  http://127.0.0.1:8000/health    -> {"status": "ok", "model_loaded": true, ...}
 # docs http://127.0.0.1:8000/docs      -> interactive OpenAPI UI
 ```
@@ -190,10 +192,22 @@ the venv with `py -3.12 -m venv .venv` instead. Not needed unless
 
 ## Deploying to Render
 
-The API is a plain FastAPI service — no Docker needed, Render's native
-Python runtime builds and runs it directly. `render.yaml` at the repo
-root defines this as a Blueprint; the same settings can also be entered
-by hand in the Render dashboard when creating a new Web Service.
+The API and the frontend deploy together as one plain FastAPI service —
+no Docker, no separate static site, no build step for the frontend
+(it's hand-written HTML/CSS/JS, served as-is). `render.yaml` at the
+repo root defines this as a Blueprint; the same settings can also be
+entered by hand in the Render dashboard when creating a new Web
+Service.
+
+The frontend is mounted at `/` by `api/main.py` (via Starlette's
+`StaticFiles(..., html=True)`, registered *after* `/health`,
+`/recommend`, `/compare`, and FastAPI's own `/docs`/`/openapi.json` —
+route order means it can only ever catch paths none of those already
+handle, so it can't shadow the API). Because frontend and API share an
+origin in this deployment, **the frontend needs no CORS configuration
+and no API base URL configuration** — `frontend/config.js`'s
+`PALETTEML_API_BASE_URL` stays `""`, meaning "call whatever origin
+served this page."
 
 **Build command:**
 ```
@@ -209,13 +223,35 @@ hardcoded port) are both required — Render assigns the port at
 runtime and routes external traffic to it; a service bound to
 `127.0.0.1` or a fixed port is unreachable from outside its container.
 
-**Environment variables:** none are required at runtime — the API
-never calls an external service (the Art Institute of Chicago API is
-only used offline by `scripts/build_dataset.py`, not by the deployed
-service). `PYTHON_VERSION=3.12.7` is set in `render.yaml` to pin the
-build to a known-good interpreter version rather than whatever Render
-defaults to; not required for correctness, just for reproducible
-builds. No API keys or secrets are needed anywhere in this stack.
+**Environment variables:** none are required for the default
+(same-origin) deployment described above — the API never calls an
+external service at runtime (the Art Institute of Chicago API is only
+used offline by `scripts/build_dataset.py`). `PYTHON_VERSION=3.12.7`
+is set in `render.yaml` to pin the build to a known-good interpreter
+version rather than whatever Render defaults to; not required for
+correctness, just for reproducible builds. No API keys or secrets are
+needed anywhere in this stack.
+
+`ALLOWED_ORIGINS` (optional) — comma-separated list of extra exact
+origins the API should accept cross-origin browser requests from, e.g.
+`https://my-frontend.onrender.com,https://example.com`. Only needed if
+you deploy the frontend *separately* from the API (see "Alternative:
+separate static site" below); local dev origins
+(`http://localhost:*`, `http://127.0.0.1:*`) are always allowed
+regardless of this setting, and no origin is ever allowed with a
+wildcard `*`. See `api/main.py`'s CORS section for the full reasoning.
+
+### Alternative: separate static site
+
+If you'd rather deploy the frontend independently (e.g. a Render
+Static Site pointed at the same repo, `frontend/` as the publish
+directory): set `ALLOWED_ORIGINS` on the API service to that static
+site's URL, and edit `frontend/config.js`'s `PALETTEML_API_BASE_URL` to
+the API service's URL (e.g. `https://paletteml-api.onrender.com`) before
+deploying the static site. Everything else is unchanged. This project
+uses the combined single-service deployment above by default because
+it's simpler to operate (one service, one URL, no CORS to reason
+about) — this path exists for when that trade-off isn't the right one.
 
 **Files that must be committed before deploying:** beyond the normal
 source tree, specifically:
@@ -227,6 +263,10 @@ source tree, specifically:
   `models/*`. **If these three files aren't in the repo Render builds
   from, the service will crash on startup** (`ColorVocabulary.load()`
   etc. will raise `FileNotFoundError`) rather than serve a broken API.
+- `frontend/index.html`, `frontend/style.css`, `frontend/app.js`,
+  `frontend/config.js` — the homepage. Without these, `/health` etc.
+  still work fine (the static mount is skipped gracefully if
+  `frontend/` is absent — see `api/main.py`), you just get no homepage.
 - `render.yaml` (or the equivalent dashboard configuration).
 - `requirements.txt` (already tracked).
 
@@ -235,6 +275,17 @@ deploy is live; it returns `model_loaded: true` plus the loaded
 vocabulary size and SVD dimension, so a passing health check is also
 confirmation the real trained model came up correctly, not just that
 the process is alive.
+
+### Frontend tests
+
+`frontend/app.js` separates DOM-free pure logic (hex validation,
+request building, response formatting, error messages) from DOM
+wiring — see the file's own comments. The pure half is tested with
+Node's built-in test runner, no dependencies or build step:
+
+```bash
+node --test frontend/app.test.js
+```
 
 ## Roadmap (one week)
 
@@ -245,7 +296,8 @@ the process is alive.
    `reports/evaluation_report.md`.
 4. ~~FastAPI endpoints wired to the fitted model, deployable on Render.~~ Done —
    see "Deploying to Render" above.
-5. Static frontend calling the API.
+5. ~~Static frontend calling the API, served together with it on Render.~~ Done —
+   see "Deploying to Render" above.
 6. Dockerize; deploy to AWS (single small instance or App Runner /
    Elastic Beanstalk — kept simple given the timebox).
 

@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from paletteml.api.main import ModelState, app, get_model_state
+from paletteml.api.main import ModelState, app, get_model_state, parse_allowed_origins
 from paletteml.modeling.baseline import PopularityBaseline
 from paletteml.modeling.co_occurrence import CoOccurrenceModel
 from paletteml.modeling.embedding import ColorEmbedding
@@ -205,3 +205,94 @@ class TestFakeStateBehavior:
         assert response.status_code == 200
         # only vocab_size - 1 candidates can ever exist for a single seed
         assert len(response.json()["recommendations"]) <= state.vocabulary.size - 1
+
+
+class TestParseAllowedOrigins:
+    """Unit tests for the ALLOWED_ORIGINS env var parser.
+
+    Tested as a pure function rather than by reimporting api.main with
+    different environments — see parse_allowed_origins()'s docstring.
+    """
+
+    def test_empty_string_gives_no_extra_origins(self):
+        assert parse_allowed_origins("") == []
+
+    def test_single_origin(self):
+        assert parse_allowed_origins("https://example.com") == ["https://example.com"]
+
+    def test_multiple_origins_with_whitespace(self):
+        assert parse_allowed_origins("https://a.com, https://b.com") == [
+            "https://a.com",
+            "https://b.com",
+        ]
+
+    def test_skips_empty_entries_from_stray_commas(self):
+        assert parse_allowed_origins("https://a.com,,https://b.com,") == [
+            "https://a.com",
+            "https://b.com",
+        ]
+
+
+class TestCorsBehavior:
+    """Exercises the live CORSMiddleware on the real (env-default) app."""
+
+    def test_allows_localhost_dev_origin(self, fake_client):
+        client, _state = fake_client
+        response = client.get("/health", headers={"Origin": "http://localhost:5500"})
+        assert response.headers.get("access-control-allow-origin") == "http://localhost:5500"
+
+    def test_allows_127_0_0_1_dev_origin_with_port(self, fake_client):
+        client, _state = fake_client
+        response = client.get("/health", headers={"Origin": "http://127.0.0.1:3000"})
+        assert response.headers.get("access-control-allow-origin") == "http://127.0.0.1:3000"
+
+    def test_does_not_allow_arbitrary_origin_by_default(self, fake_client):
+        client, _state = fake_client
+        response = client.get("/health", headers={"Origin": "https://evil.example.com"})
+        assert response.headers.get("access-control-allow-origin") != "https://evil.example.com"
+
+    def test_preflight_for_recommend_succeeds_for_allowed_origin(self, fake_client):
+        client, _state = fake_client
+        response = client.options(
+            "/recommend",
+            headers={
+                "Origin": "http://localhost:5500",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == "http://localhost:5500"
+
+    def test_no_wildcard_origin_is_ever_returned(self, fake_client):
+        client, _state = fake_client
+        response = client.get("/health", headers={"Origin": "http://localhost:5500"})
+        assert response.headers.get("access-control-allow-origin") != "*"
+
+
+class TestStaticFrontend:
+    """The homepage and static assets are served by the same app as the API."""
+
+    def test_homepage_serves_index_html(self, real_client):
+        response = real_client.get("/")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "PaletteML" in response.text
+
+    def test_static_assets_are_served(self, real_client):
+        for path in ("/style.css", "/app.js", "/config.js"):
+            response = real_client.get(path)
+            assert response.status_code == 200, path
+
+    def test_static_mount_does_not_shadow_api_routes(self, real_client):
+        # regression check: mounting StaticFiles at "/" must never
+        # intercept these — see the ordering comment in api/main.py
+        assert real_client.get("/health").status_code == 200
+        assert real_client.post("/recommend", json={"colors": ["#b23a2f"]}).status_code == 200
+        assert real_client.post("/compare", json={"colors": ["#b23a2f"]}).status_code == 200
+        assert real_client.get("/docs").status_code == 200
+        assert real_client.get("/openapi.json").status_code == 200
+
+    def test_unknown_path_returns_404_not_the_homepage(self, real_client):
+        response = real_client.get("/this-path-does-not-exist")
+        assert response.status_code == 404
