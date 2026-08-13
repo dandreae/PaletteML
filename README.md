@@ -81,12 +81,36 @@ chosen deliberately over a neural embedding: same conceptual weight,
 far less training-time and infra risk, appropriate for a dataset of a
 few thousand paintings and a one-week timebox.
 
+## Dataset
+
+**Source:** [Art Institute of Chicago public API](https://api.artic.edu/docs/) (`api.artic.edu`). Chosen because it requires no API key (just a courtesy `AIC-User-Agent` header identifying the app instead of a hard rate limit), is well documented, and serves images through a IIIF endpoint that lets us request a fixed, modest resolution directly rather than downloading full-resolution masters. Metadata is CC0-licensed; for artworks flagged `is_public_domain: true`, the images themselves are also released under CC0 — free to reproduce for any purpose, including this project.
+
+**What's downloaded:** for each candidate artwork — title, artist, display/start/end date, a stable id, a link back to the object page, and one JPEG image (~600px wide, via `https://www.artic.edu/iiif/2/{image_id}/full/600,/0/default.jpg`). Only artworks with `artwork_type_title == "Painting"`, `is_public_domain == true`, and an available image are kept; everything else is filtered out before download. (Note: AIC's documented structured query syntax for expressing that filter server-side proved unreliable in testing — it returned zero results for filters that worked moments earlier via other params — so filtering happens client-side in `data/sources/artic.py` against the plain full-text search, which was consistently reliable.)
+
+**How palettes are generated:** each downloaded image is run through the existing `color.extraction.extract_palette` (K-Means in CIELAB, see above) — nothing dataset-specific about color extraction, it's the same function used for a single image. Metadata + palette are flattened into one JSON object per line in `data/processed/palettes.jsonl`.
+
+**Reproducing the dataset locally:**
+
+```bash
+python scripts/build_dataset.py --limit 100
+# or, for a quick smoke test:
+python scripts/build_dataset.py --limit 10 -v
+```
+
+Re-running with the same `--raw-dir` (default `data/raw/`) reuses already-downloaded images instead of re-fetching them — only new artworks trigger a download. A failure on any single artwork (network error, corrupt/undecodable image) is logged and skipped; it doesn't abort the run, and its partial cache file (if any) is removed so a later re-run retries it.
+
+**Why raw artwork files (and the processed JSONL) aren't committed to git:** both are fully reproducible from `scripts/build_dataset.py` plus the AIC API, so committing them would just bloat the repo with regenerable binary/derived data. `data/raw/` and `data/processed/` are gitignored; anyone cloning the repo regenerates the dataset locally with the command above.
+
 ## Repository layout
 
 ```
 src/paletteml/
   config.py          Paths and constants
-  data/               Dataset acquisition (ingest.py) and access (dataset.py)
+  data/               Dataset acquisition:
+                        schema.py     source-agnostic ArtworkMetadata/ArtworkRecord
+                        sources/      dataset-source-specific code (artic.py = AIC API)
+                        ingest.py     generic pipeline: any source -> cached images -> palettes -> JSONL
+                        dataset.py    typed read-back access (modeling stage, not yet implemented)
   color/              Dominant-color extraction (extraction.py) and
                       perceptual color-space conversion (space.py)
   modeling/           Co-occurrence embedding (embedding.py) and
@@ -149,16 +173,15 @@ the venv with `py -3.12 -m venv .venv` instead. Not needed unless
 
 ## Roadmap (one week)
 
-1. Dataset ingest: pull a few thousand painting images + metadata
-   (WikiArt subset), write manifest.
-2. Dominant-color extraction pipeline over the full dataset ->
-   `data/processed/palettes.parquet`.
-3. Co-occurrence embedding + clustering, fit on a train split.
-4. Recommendation function + held-out evaluation vs. baselines,
+1. ~~Dataset ingest: pull ~100-500 public-domain paintings + metadata
+   from the Art Institute of Chicago API, extract palettes ->
+   `data/processed/palettes.jsonl`.~~ Done — see "Dataset" above.
+2. Co-occurrence embedding + clustering, fit on a train split.
+3. Recommendation function + held-out evaluation vs. baselines,
    written up in `reports/`.
-5. FastAPI endpoints wired to the fitted model.
-6. Static frontend calling the API.
-7. Dockerize; deploy to AWS (single small instance or App Runner /
+4. FastAPI endpoints wired to the fitted model.
+5. Static frontend calling the API.
+6. Dockerize; deploy to AWS (single small instance or App Runner /
    Elastic Beanstalk — kept simple given the timebox).
 
 ## Non-goals
