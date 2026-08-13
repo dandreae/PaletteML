@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from paletteml.evaluation.metrics import EvalCaseResult
+from paletteml.modeling.vocabulary import ColorVocabulary
 
 
 def stratify_by_training_frequency(
@@ -48,6 +49,53 @@ def stratify_by_training_frequency(
             f"hit_rate_at_{k}": (sum(1 for cr in crs if cr.hit_at(k)) / len(crs)) if crs else 0.0,
         }
         for idx, crs in sorted(buckets.items())
+    }
+
+
+def is_dark_neutral(
+    lab: tuple[float, float, float], lightness_threshold: float = 40.0, chroma_threshold: float = 20.0
+) -> bool:
+    """Is this Lab color dark (low L) and desaturated (low chroma)?
+
+    Threshold choice: L < 40 covers roughly the bottom third of the
+    0-100 lightness range (dark shadows, near-black backgrounds);
+    chroma = sqrt(a^2 + b^2) < 20 excludes vivid dark colors (a deep
+    saturated red or blue isn't "neutral" just because it's dark).
+    Deliberately simple and documented rather than tuned — the point
+    is a defensible, inspectable definition, not an optimized one.
+    """
+    lightness, a, b = lab
+    chroma = (a**2 + b**2) ** 0.5
+    return lightness < lightness_threshold and chroma < chroma_threshold
+
+
+def stratify_by_dark_neutral(
+    case_results: list[EvalCaseResult],
+    vocabulary: ColorVocabulary,
+    k: int = 5,
+    lightness_threshold: float = 40.0,
+    chroma_threshold: float = 20.0,
+) -> dict[str, dict]:
+    """Split cases by whether the HIDDEN color is dark/neutral, report Hit@k per group.
+
+    Directly targets the dark/neutral bias flagged in the previous
+    evaluation stage: popularity's advantage was hypothesized to come
+    from dark background/shadow colors being both extremely common
+    *and* easy to predict regardless of seed. This checks whether a
+    recommender's accuracy is concentrated in that group specifically.
+    """
+    buckets: dict[str, list[EvalCaseResult]] = {"dark_neutral": [], "other": []}
+    for cr in case_results:
+        lab = vocabulary.entries[cr.case.hidden_cluster_id].lab
+        label = "dark_neutral" if is_dark_neutral(lab, lightness_threshold, chroma_threshold) else "other"
+        buckets[label].append(cr)
+
+    return {
+        label: {
+            "n": len(crs),
+            f"hit_rate_at_{k}": (sum(1 for cr in crs if cr.hit_at(k)) / len(crs)) if crs else 0.0,
+        }
+        for label, crs in buckets.items()
     }
 
 

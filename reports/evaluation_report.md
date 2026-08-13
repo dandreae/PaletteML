@@ -1,140 +1,184 @@
-# PaletteML Evaluation Report
+# PaletteML Evaluation Report: SVD Embedding vs. PPMI Co-occurrence
 
-Generated 2026-08-13T09:56:11.421633+00:00
+Generated 2026-08-13T10:24:09.827627+00:00
 
 ## Dataset & split
 
 - Total processed artworks: 300
 - Train: 240 artworks · Test: 60 artworks
   (test_fraction=0.2, random_state=42)
-- Split is by whole painting — every color from one painting stays on one side.
+- Split is by whole painting, unchanged from the previous evaluation stage.
 
-## Methodology
+## Methodology (unchanged from the previous stage, SVD is purely additive)
 
-**Leakage prevention.** The color vocabulary (K-Means over Lab colors) and the
-co-occurrence statistics are fit *only* on training-set artworks. Test artworks are
-touched for the first time at evaluation: their palettes are *encoded* against the
-already-fitted (frozen) vocabulary — a nearest-neighbor lookup, not a fit — so no
-information from test paintings reaches the vocabulary or the co-occurrence counts.
-Full detail: `evaluation/split.py`, `evaluation/cases.py`.
-
-**Leave-one-color-out.** For each eligible test painting, every distinct vocabulary
-color it contains gets one evaluation case: that color is hidden, the painting's
-*other* colors become seeds, and each recommender is asked to rank all vocabulary
-colors given those seeds. A hit means the hidden color appears in the ranking.
-
-**Eligibility.** Two situations are skipped as meaningless, not evaluated as
-misses:
-1. A painting with only one distinct vocabulary color (no possible seed/target split).
-2. A candidate hidden color whose vocabulary bin was never observed in *any*
-   training painting — no model fit only on training data could ever predict it,
-   so scoring that as a "miss" would measure vocabulary coverage, not
-   recommendation quality.
+Same train/test split, same leave-one-color-out case construction, same eligibility
+rules (see `evaluation/split.py`, `evaluation/cases.py`). The SVD embedding is fit
+**only** on the same train-only co-occurrence model already used by the direct
+recommender — it factorizes that model's PPMI matrix, so it sees no additional
+information beyond what co-occurrence already had access to.
 
 At vocab_size=64: 60 test paintings considered,
 0 skipped (single color), 0
-candidate hides skipped (unseen in training) → **293 evaluation cases**.
+candidate hides skipped (unseen in training) → **293 evaluation cases**,
+identical across all four recommenders below.
 
-## Metrics, in plain English
+## Headline comparison (vocab_size=64, SVD dimension=16)
 
-- **Hit Rate @ K** — fraction of cases where the true hidden color appeared
-  somewhere in the top K recommendations.
-- **MRR** (Mean Reciprocal Rank) — average of 1/rank (0 if never found); rewards
-  ranking the right color *near the top*, not just getting it onto the list.
-
-## Headline comparison (vocab_size=64)
-
-| Metric | Co-occurrence | Popularity | Random |
-|---|---:|---:|---:|
-| Hit Rate @1 | 0.020 | 0.051 | 0.034 |
-| Hit Rate @3 | 0.119 | 0.109 | 0.058 |
-| Hit Rate @5 | 0.174 | 0.171 | 0.099 |
-| MRR | 0.122 | 0.139 | 0.095 |
+| Metric | Co-occurrence | SVD embedding | Popularity | Random |
+|---|---:|---:|---:|---:|
+| Hit Rate @1 | 0.020 | 0.065 | 0.051 | 0.034 |
+| Hit Rate @3 | 0.119 | 0.154 | 0.109 | 0.058 |
+| Hit Rate @5 | 0.174 | 0.225 | 0.171 | 0.099 |
+| MRR | 0.122 | 0.170 | 0.139 | 0.095 |
 
 n_cases = 293.
 
-**vs. popularity:** co-occurrence nominally beats popularity (0.174 vs 0.171) but the gap is **not statistically significant** (McNemar χ²=0.00, 40 cases co-occurrence won alone vs 39 popularity won alone) — consistent with noise, not a real effect.
+**SVD vs. co-occurrence:** SVD nominally beats co-occurrence (0.225 vs 0.174) but the gap is **not statistically significant** (McNemar χ²=2.42, 48 cases SVD won alone vs 33 co-occurrence won alone) — consistent with noise.
 
-**vs. random:** co-occurrence beats random, and the gap is statistically significant (McNemar p<0.05) (0.174 vs 0.099 Hit@5).
+**SVD vs. popularity:** SVD nominally beats popularity (0.225 vs 0.171) but the gap is **not statistically significant** (McNemar χ²=2.68, 50 cases SVD won alone vs 34 popularity won alone) — consistent with noise.
+
+**SVD vs. random:** SVD beats random, and the gap is statistically significant (McNemar p<0.05).
+
+**Co-occurrence vs. popularity** (carried over from the previous stage, same split):
+co-occurrence nominally beats popularity (0.174 vs 0.171) but the gap is **not statistically significant** (McNemar χ²=0.00, 40 cases co-occurrence won alone vs 39 popularity won alone) — consistent with noise.
 
 ![Recommender comparison](figures/evaluation_comparison.png)
 
-## Vocabulary size sweep
+## Embedding dimension sweep (fixed vocab_size=64)
 
-Same train/test split, same methodology, vocab_size varied:
+Same cases, same co_occurrence model, only the SVD truncation dimension varies:
 
-| Vocab size | N cases | CoOcc H@1 | CoOcc H@3 | CoOcc H@5 | CoOcc MRR | Pop H@5 | Rand H@5 | Margin |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 32 | 280 | 0.036 | 0.168 | 0.304 | 0.177 | 0.382 | 0.232 | -0.079 |
-| 48 | 286 | 0.035 | 0.147 | 0.213 | 0.147 | 0.217 | 0.098 | -0.003 |
-| 64 | 293 | 0.020 | 0.119 | 0.174 | 0.122 | 0.171 | 0.099 | +0.003 |
-| 96 | 292 | 0.041 | 0.092 | 0.154 | 0.120 | 0.127 | 0.062 | +0.027 |
+| Dimension | Hit@1 | Hit@3 | Hit@5 | MRR | Explained variance | vs. Co-occurrence H@5 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 0.048 | 0.099 | 0.215 | 0.145 | 0.605 | +0.041 |
+| 16 | 0.065 | 0.154 | 0.225 | 0.170 | 0.785 | +0.051 |
+| 32 | 0.058 | 0.143 | 0.205 | 0.157 | 0.947 | +0.031 |
 
-Margin = CoOcc H@5 − Popularity H@5. Negative means **popularity outperforms the
-learned model** at that vocab size.
+"vs. Co-occurrence H@5" = SVD Hit@5 − Co-occurrence Hit@5 at this vocab_size (same
+294-ish cases both times). Explained variance is the fraction of the PPMI matrix's
+total squared-singular-value "energy" this many components keep — a diagnostic for
+how much of the matrix's structure survives truncation, not a performance metric by
+itself. Dimensions were **not** chosen to make any particular one win.
 
-**Best vocab size (by co-occurrence Hit@5 in isolation, tie-broken by MRR): 32.**
-This was not assumed — the original choice of 64 came from a sizing heuristic
-(samples-per-cluster), not from measuring hit rate.
+## Vocabulary size sweep (co-occurrence only, carried over from the previous stage)
 
-⚠️ **Caveat: 'best' here is misleading on its own.** Popularity actually outperforms co-occurrence at vocab_size 32, 48. A higher absolute Hit@5 for co-occurrence does not mean co-occurrence is winning the comparison that matters — see the margin column above.
+| Vocab size | N cases | CoOcc H@5 | Pop H@5 | Margin |
+|---:|---:|---:|---:|---:|
+| 32 | 280 | 0.304 | 0.382 | -0.079 |
+| 48 | 286 | 0.213 | 0.217 | -0.003 |
+| 64 | 293 | 0.174 | 0.171 | +0.003 |
+| 96 | 292 | 0.154 | 0.127 | +0.027 |
+
+Best vocab size by co-occurrence Hit@5 (tie-break MRR): 32. Note this
+was computed for co-occurrence only in the previous stage and was not re-run for SVD
+at every vocab size in this stage — see "what this doesn't demonstrate" below.
 
 ## Failure case analysis
 
-**Hit@5 by how common the hidden color was in training:**
+### Hit@5 by how common the hidden color was in training
 
-| Training occurrences | N cases | Hit@5 |
-|---|---:|---:|
-| 1-4 | 3 | 0.333 |
-| 5-19 | 103 | 0.223 |
-| 20+ | 187 | 0.144 |
+| Training occurrences | N cases | Co-occurrence Hit@5 | SVD Hit@5 |
+|---|---:|---:|---:|
+| 1-4 | 3 | 0.333 | 0.000 |
+| 5-19 | 103 | 0.223 | 0.214 |
+| 20+ | 187 | 0.144 | 0.235 |
 
-**Sample successes** (co-occurrence found the hidden color in its top 5):
+### Dark/neutral bias (the specific pattern flagged in the previous stage)
+
+"dark_neutral" = hidden color has L < 40 and chroma < 20 (see `evaluation/analysis.py:is_dark_neutral`
+for the exact, deliberately simple definition).
+
+| Hidden color group | N cases | Co-occurrence H@5 | SVD H@5 | Popularity H@5 | Random H@5 |
+|---|---:|---:|---:|---:|---:|
+| dark_neutral | 103 | 0.204 | 0.252 | 0.427 | 0.097 |
+| other | 190 | 0.158 | 0.211 | 0.032 | 0.100 |
+
+### Sample cases
+
+**Co-occurrence succeeded** (hit @5):
 - `artic:11`: seeds=[#1a1612, #452416, #6f5335] hidden=`#2b2016` rank=5 top5=[#b59e7b, #9f3a26, #7f311c, #875039, #2b2016]
 - `artic:11`: seeds=[#2b2016, #452416, #6f5335] hidden=`#1a1612` rank=3 top5=[#7f311c, #633d16, #1a1612, #9f3a26, #8e5628]
 - `artic:11`: seeds=[#2b2016, #1a1612, #6f5335] hidden=`#452416` rank=1 top5=[#452416, #7f311c, #463729, #988163, #b59e7b]
 
-**Sample failures** (hidden color not found anywhere in co-occurrence's ranking):
+**Co-occurrence failed** (not found anywhere in its ranking):
 - `artic:87479`: seeds=[#b59e7b, #78664c, #463729, #452416] hidden=`#43687d` rank=not found top5=[#1a1612, #dbc582, #9f3a26, #7f311c, #875039]
 - `artic:20199`: seeds=[#9a95a9, #733a2e, #717656, #afa28c] hidden=`#394c51` rank=not found top5=[#9a756f, #48622a, #21337d, #7384a9, #9b7632]
 - `artic:20199`: seeds=[#394c51, #733a2e, #717656, #afa28c] hidden=`#9a95a9` rank=not found top5=[#48622a, #4c7158, #2e4e6e, #3e5141, #21337d]
 
-**Cases where popularity beat co-occurrence at Hit@5** (39 total):
+**Popularity beat co-occurrence** (39 total, first 3):
 - `artic:20684`: seeds=[#c8c6b5, #394c51, #98a1a2, #213344] hidden=`#7a7466` rank=41 top5=[#688a8a, #9a756f, #566a71, #9f3a26, #43687d]
 - `artic:9`: seeds=[#633d16, #84643c, #9d8250, #352918] hidden=`#1a1612` rank=27 top5=[#513b22, #584519, #8e5628, #c49a62, #cfbc99]
 - `artic:87479`: seeds=[#b59e7b, #43687d, #78664c, #452416] hidden=`#463729` rank=32 top5=[#213344, #688a8a, #9f3a26, #7f311c, #875039]
 
-## Honest conclusion
+**Popularity beat SVD** (34 total, first 3):
+- `artic:11`: seeds=[#2b2016, #452416, #6f5335] hidden=`#1a1612` rank=10 top5=[#b59e7b, #463729, #84643c, #51493a, #633d16]
+- `artic:20684`: seeds=[#c8c6b5, #394c51, #98a1a2, #213344] hidden=`#7a7466` rank=17 top5=[#566a71, #43687d, #423942, #2e4e6e, #b2866a]
+- `artic:9`: seeds=[#633d16, #84643c, #9d8250, #352918] hidden=`#1a1612` rank=18 top5=[#513b22, #5f563e, #2b2016, #463729, #6f5335]
 
-**Does the learned model beat random?** Yes, clearly — co-occurrence's Hit@5
-(0.174) is well above random's (0.099) at every vocab
-size tested, and that gap is large enough to not be noise. The model has learned
-*something* about which colors real paintings combine.
+**SVD beat co-occurrence** (48 total, first 3):
+- `artic:20684`: seeds=[#394c51, #7a7466, #98a1a2, #213344] hidden=`#c8c6b5` rank=15 top5=[#566a71, #688a8a, #908e61, #9f3a26, #9a756f]
+- `artic:20684`: seeds=[#c8c6b5, #394c51, #7a7466, #213344] hidden=`#98a1a2` rank=21 top5=[#688a8a, #43687d, #566a71, #48622a, #9f3a26]
+- `artic:9`: seeds=[#633d16, #1a1612, #9d8250, #352918] hidden=`#84643c` rank=26 top5=[#452416, #8e5628, #584519, #513b22, #cfbc99]
 
-**Does the learned model beat the popularity baseline?** This is much less clear,
-and depends heavily on vocab_size:
-- At vocab_size=32 and 48, **popularity wins outright** (e.g. 0.382
-  vs 0.304 Hit@5 at vocab_size=32).
-- At vocab_size=64 (the working default), co-occurrence is nominally ahead but the
-  gap is not statistically distinguishable from zero on this test set (McNemar
-  χ²=0.00, 293 cases).
-- The largest, clearest co-occurrence-over-popularity margin in this sweep is at
-  vocab_size=96.
+**Co-occurrence beat SVD** (33 total, first 3):
+- `artic:11`: seeds=[#2b2016, #452416, #6f5335] hidden=`#1a1612` rank=10 top5=[#b59e7b, #463729, #84643c, #51493a, #633d16]
+- `artic:11`: seeds=[#2b2016, #1a1612, #6f5335] hidden=`#452416` rank=11 top5=[#463729, #b59e7b, #5f563e, #633d16, #84643c]
+- `artic:14655`: seeds=[#875039, #98a1a2, #213344, #717656] hidden=`#566a71` rank=13 top5=[#c8c6b5, #4c7158, #3e5141, #423942, #688a8a]
 
-**Interpretation, held to a low bar on purpose:** a simple "recommend common colors"
-baseline is a genuinely strong competitor on this dataset — most paintings share a
-lot of dark/neutral background colors, so popularity alone recovers a fair number
-of held-out colors "for free". The co-occurrence model's real value proposition —
-giving *different* recommendations for different seed colors, grounded in actual
-pairwise relationships rather than one fixed global ranking — isn't fully captured
-by Hit@K/MRR averaged across all seeds. This evaluation does not yet demonstrate
-that the learned model is a clear practical improvement over popularity; it does
-demonstrate the model is measurably better than having learned nothing (random),
-and that the honest next step is investigating *why* popularity is so competitive
-(likely dataset skew toward dark/neutral palette colors — see the popularity
-baseline's own most-common-colors list from `scripts/train.py`) before claiming
-success.
+## What this experiment actually demonstrates
 
-This is a small, single-split evaluation on a modest dataset (300
-artworks, 293 leave-one-out cases). Treat every number above as "does this
-look promising enough to keep building on," not as a validated production result.
+**Headline numbers favor SVD, consistently, but not (yet) significantly.** SVD had
+the best Hit@5 and MRR of all four recommenders at every tested embedding dimension
+(8, 16, 32) — it wasn't a lucky one-off pick. But McNemar's
+test on the same 293 cases puts SVD-vs-co-occurrence at χ²=2.42
+and SVD-vs-popularity at χ²=2.68, both below the 3.841
+significance threshold. That's notably closer to significance than co-occurrence's own
+χ²=0.00 margin over popularity from the previous stage — SVD
+looks like a real step up from a coin flip toward "probably better" — but "closer to
+significant" is not the same as "significant," and this test set (293 cases from 60
+paintings) is small enough that a few more paintings could shift this.
+
+**The dark/neutral finding explains *why* popularity looked so competitive, and it's
+the most useful result in this report.** Popularity's Hit@5 splits into
+42.7% on dark/neutral hidden colors (103 cases) vs. only
+3.2% on everything else (190 cases) — over a 13x gap. Popularity isn't
+good at recommending relevant colors; it's good at guessing that a painting contains a
+dark background, which most of them do. Both learned models are far more balanced:
+co-occurrence goes 20.4% → 15.8%, SVD goes
+25.2% → 21.1%. On the "other" (chromatic, non-background) group
+specifically — arguably the group that actually matters for a palette-recommendation
+product, since nobody needs help finding "add a dark background" — **SVD
+(21.1%) and co-occurrence (15.8%) both beat popularity
+(3.2%) by roughly 6-7x.** The random baseline shows no such split
+(9.7% vs 10.0%), confirming this is a genuine
+property of the dataset (dark/neutral colors are just common) and not an artifact of
+the stratification itself. This reframes the headline Hit@5 comparison: popularity's
+apparent competitiveness is concentrated almost entirely in a color category a real
+palette tool wouldn't need much help recommending.
+
+**Training-frequency pattern flipped for SVD, in the intuitively "correct" direction.**
+Co-occurrence's Hit@5 got *worse* as the hidden color's training frequency increased
+(0.223 at 5-19 occurrences → 0.144 at 20+,
+103 and 187 cases respectively) — a pattern flagged as a puzzle in the
+previous stage. SVD shows the opposite, more intuitive direction
+(0.214 → 0.235): more training evidence, better
+predictions. This is consistent with — though doesn't prove — the mechanism SVD is
+supposed to provide: smoothing over individual noisy PPMI cells rather than reading
+them literally. The smallest bucket (1-4 occurrences, only 3 cases) is too small
+to read anything into either way.
+
+**What this evaluation does NOT demonstrate:**
+- Statistical significance of SVD's improvement — the numbers are directionally
+  consistent and encouraging, not proven at conventional thresholds on this test set.
+- Optimality of the tested embedding dimensions (8, 16, 32) — a
+  reasonable range relative to vocab_size=64, not exhaustively searched
+  (dimension 16 won here; that's one data point, not a tuned optimum).
+- Interaction between vocab_size and embedding dimension — the dimension sweep only
+  ran at vocab_size=64; a different vocab_size could favor SVD differently,
+  and that wasn't checked (a real scope limitation, not an oversight to hide).
+
+This remains a small, single-split evaluation on a modest dataset (300
+artworks, 293 leave-one-out cases). The dark/neutral breakdown is the most
+actionable finding here — it says more about what to fix next (the dataset's color
+distribution and what "success" should even mean for a palette tool) than the
+headline Hit@K numbers do on their own.

@@ -105,6 +105,25 @@ class CoOccurrenceModel:
             return 0.0
         return max(0.0, self.pmi(i, j))
 
+    def build_ppmi_matrix(self) -> np.ndarray:
+        """Dense (vocab_size, vocab_size) matrix of ppmi(i,j) for every pair, zero diagonal.
+
+        This is the matrix modeling/embedding.py factorizes via SVD.
+        Built by calling the same .ppmi() used for direct pairwise
+        ranking (not a separate computation), so the embedding and the
+        direct co-occurrence recommender are guaranteed to agree on
+        every pairwise association value — only how each aggregates
+        that information into a recommendation differs.
+        """
+        v = self.vocab_size
+        matrix = np.zeros((v, v), dtype=np.float64)
+        for i in range(v):
+            for j in range(i + 1, v):
+                value = self.ppmi(i, j)
+                matrix[i, j] = value
+                matrix[j, i] = value
+        return matrix
+
     # --- persistence ---
 
     def save(self, path: Path) -> None:

@@ -113,3 +113,54 @@ class TestReturnedStructure:
         run = run_full_evaluation(train, test, vocab_size=4, random_state=RANDOM_STATE)
         assert run.vocab_size == 4
         assert run.vocabulary.size == 4
+
+
+class TestSvdIntegration:
+    def test_embedding_dims_none_is_fully_backward_compatible(self):
+        train = _many_artworks(20, seed=1)
+        test = _many_artworks(10, seed=2)
+        run = run_full_evaluation(train, test, vocab_size=4, embedding_dims=None, random_state=RANDOM_STATE)
+        assert set(run.results.keys()) == {"co_occurrence", "popularity", "random"}
+        assert run.embeddings == {}
+
+    def test_embedding_dims_adds_svd_results_without_removing_existing_ones(self):
+        train = _many_artworks(20, seed=1)
+        test = _many_artworks(12, seed=2)
+        run = run_full_evaluation(
+            train, test, vocab_size=4, embedding_dims=[2, 3], random_state=RANDOM_STATE
+        )
+        assert set(run.results.keys()) == {"co_occurrence", "popularity", "random", "svd_d2", "svd_d3"}
+        assert set(run.embeddings.keys()) == {2, 3}
+
+    def test_svd_evaluated_on_identical_cases_as_the_others(self):
+        train = _many_artworks(20, seed=1)
+        test = _many_artworks(12, seed=2)
+        run = run_full_evaluation(train, test, vocab_size=4, embedding_dims=[2], random_state=RANDOM_STATE)
+
+        co_cases = [cr.case for cr in run.results["co_occurrence"].case_results]
+        svd_cases = [cr.case for cr in run.results["svd_d2"].case_results]
+        assert co_cases == svd_cases
+
+    def test_including_embedding_dims_does_not_change_other_results(self):
+        # the same train/test split and vocab_size must give identical
+        # co-occurrence/popularity/random numbers whether or not SVD is
+        # also requested — SVD is additive, not a side effect
+        train = _many_artworks(20, seed=1)
+        test = _many_artworks(12, seed=2)
+
+        without_svd = run_full_evaluation(train, test, vocab_size=4, random_state=RANDOM_STATE)
+        with_svd = run_full_evaluation(
+            train, test, vocab_size=4, embedding_dims=[2, 3], random_state=RANDOM_STATE
+        )
+
+        for name in ("co_occurrence", "popularity", "random"):
+            assert without_svd.results[name].hit_rate_at_5 == pytest.approx(with_svd.results[name].hit_rate_at_5)
+            assert without_svd.results[name].mrr == pytest.approx(with_svd.results[name].mrr)
+
+    def test_svd_reproducible_end_to_end(self):
+        train = _many_artworks(20, seed=1)
+        test = _many_artworks(12, seed=2)
+        run1 = run_full_evaluation(train, test, vocab_size=4, embedding_dims=[2], random_state=RANDOM_STATE)
+        run2 = run_full_evaluation(train, test, vocab_size=4, embedding_dims=[2], random_state=RANDOM_STATE)
+        assert run1.results["svd_d2"].hit_rate_at_5 == pytest.approx(run2.results["svd_d2"].hit_rate_at_5)
+        assert run1.results["svd_d2"].mrr == pytest.approx(run2.results["svd_d2"].mrr)

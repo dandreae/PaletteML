@@ -5,11 +5,14 @@ import pytest
 
 from paletteml.evaluation.analysis import (
     find_cases_where_a_loses_to_b,
+    is_dark_neutral,
     mcnemar_test,
+    stratify_by_dark_neutral,
     stratify_by_training_frequency,
 )
 from paletteml.evaluation.cases import EvalCase
 from paletteml.evaluation.metrics import EvalCaseResult
+from paletteml.modeling.vocabulary import ColorVocabulary
 
 
 def _result(hidden_id: int, rank: int | None, artwork_id: str = "a") -> EvalCaseResult:
@@ -41,6 +44,51 @@ class TestStratifyByTrainingFrequency:
 
     def test_empty_input(self):
         assert stratify_by_training_frequency([], np.array([0]), k=5) == {}
+
+
+class TestIsDarkNeutral:
+    def test_dark_desaturated_is_dark_neutral(self):
+        assert is_dark_neutral((15.0, 2.0, -3.0)) is True  # near-black shadow
+
+    def test_dark_but_saturated_is_not_dark_neutral(self):
+        assert is_dark_neutral((25.0, 60.0, 40.0)) is False  # deep saturated red
+
+    def test_light_desaturated_is_not_dark_neutral(self):
+        assert is_dark_neutral((80.0, 1.0, -1.0)) is False  # near-white
+
+    def test_thresholds_are_configurable(self):
+        lab = (35.0, 15.0, 5.0)
+        assert is_dark_neutral(lab, lightness_threshold=30.0) is False  # tightened threshold excludes it
+        assert is_dark_neutral(lab, lightness_threshold=40.0) is True
+
+
+class TestStratifyByDarkNeutral:
+    def test_buckets_by_hidden_color_lab(self):
+        points = np.array([[15.0, 2.0, -3.0], [80.0, 60.0, 40.0]] * 3, dtype=np.float64)
+        vocabulary = ColorVocabulary.fit(points, vocab_size=2, random_state=42)
+        dark_id = vocabulary.assign(np.array([15.0, 2.0, -3.0]))
+        vivid_id = vocabulary.assign(np.array([80.0, 60.0, 40.0]))
+
+        results = [
+            _result(hidden_id=dark_id, rank=1, artwork_id="a"),  # dark, hit
+            _result(hidden_id=dark_id, rank=None, artwork_id="b"),  # dark, miss
+            _result(hidden_id=vivid_id, rank=2, artwork_id="c"),  # other, hit
+        ]
+
+        stratified = stratify_by_dark_neutral(results, vocabulary, k=5)
+
+        assert stratified["dark_neutral"]["n"] == 2
+        assert stratified["dark_neutral"]["hit_rate_at_5"] == pytest.approx(0.5)
+        assert stratified["other"]["n"] == 1
+        assert stratified["other"]["hit_rate_at_5"] == pytest.approx(1.0)
+
+    def test_empty_bucket_is_zero_not_error(self):
+        points = np.array([[15.0, 2.0, -3.0]] * 4, dtype=np.float64)
+        vocabulary = ColorVocabulary.fit(points, vocab_size=1, random_state=42)
+        results = [_result(hidden_id=0, rank=1, artwork_id="a")]
+        stratified = stratify_by_dark_neutral(results, vocabulary, k=5)
+        assert stratified["other"]["n"] == 0
+        assert stratified["other"]["hit_rate_at_5"] == 0.0
 
 
 class TestFindCasesWhereALosesToB:

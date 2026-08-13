@@ -16,6 +16,7 @@ Expected pair_counts:  (0,1) -> 2 (A,B), (0,2) -> 1 (C), (1,2) -> 0
 
 import math
 
+import numpy as np
 import pytest
 
 from paletteml.modeling.co_occurrence import CoOccurrenceModel
@@ -108,3 +109,19 @@ class TestSaveLoad:
         assert loaded.color_counts.tolist() == model.color_counts.tolist()
         assert loaded.pair_counts.tolist() == model.pair_counts.tolist()
         assert loaded.ppmi(0, 1) == pytest.approx(model.ppmi(0, 1))
+
+
+class TestBuildPpmiMatrix:
+    def test_shape_symmetric_zero_diagonal(self, model):
+        matrix = model.build_ppmi_matrix()
+        assert matrix.shape == (VOCAB_SIZE, VOCAB_SIZE)
+        assert np.allclose(matrix, matrix.T)
+        assert np.allclose(np.diag(matrix), 0.0)
+
+    def test_matches_ppmi_method_for_every_pair(self, model):
+        matrix = model.build_ppmi_matrix()
+        for i in range(VOCAB_SIZE):
+            for j in range(VOCAB_SIZE):
+                if i == j:
+                    continue
+                assert matrix[i, j] == pytest.approx(model.ppmi(i, j))
