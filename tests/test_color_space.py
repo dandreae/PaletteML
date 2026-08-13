@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from paletteml.color.space import hex_to_rgb, lab_to_rgb, rgb_to_hex, rgb_to_lab
+from paletteml.color.space import hex_to_lab, hex_to_rgb, lab_to_rgb, rgb_to_hex, rgb_to_lab
 
 
 class TestRgbToLab:
@@ -95,3 +95,12 @@ class TestHexConversion:
     def test_hex_round_trip(self):
         original = np.array([12, 200, 90], dtype=np.uint8)
         assert hex_to_rgb(rgb_to_hex(original.astype(np.float64))).tolist() == original.tolist()
+
+
+class TestHexToLab:
+    def test_matches_composed_conversion(self):
+        assert hex_to_lab("#ff0000") == pytest.approx(rgb_to_lab(hex_to_rgb("#ff0000").astype(np.float64)))
+
+    def test_white_and_black(self):
+        assert hex_to_lab("#ffffff") == pytest.approx([100.0, 0.0, 0.0], abs=1e-2)
+        assert hex_to_lab("#000000") == pytest.approx([0.0, 0.0, 0.0], abs=1e-6)

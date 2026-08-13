@@ -79,3 +79,13 @@ def hex_to_rgb(hex_str: str) -> np.ndarray:
     except ValueError as exc:
         raise ValueError(f"Invalid hex color: {hex_str!r}") from exc
     return np.array([r, g, b], dtype=np.uint8)
+
+
+def hex_to_lab(hex_str: str) -> np.ndarray:
+    """Convert a "#rrggbb" hex string directly to CIELAB.
+
+    Thin composition of hex_to_rgb + rgb_to_lab, kept here so callers
+    (e.g. the recommender, converting a user's seed color) never need
+    to duplicate the RGB round-trip themselves.
+    """
+    return rgb_to_lab(hex_to_rgb(hex_str).astype(np.float64))
