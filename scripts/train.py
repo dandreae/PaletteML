@@ -1,17 +1,20 @@
 #!/usr/bin/env python
-"""CLI: fit the color vocabulary + co-occurrence model on the processed
-artwork dataset, and persist artifacts to models/.
+"""CLI: fit the color vocabulary + co-occurrence model + SVD embedding
+on the processed artwork dataset, and persist artifacts to models/.
 
 Usage:
     python scripts/train.py
-    python scripts/train.py --vocab-size 64 --input data/processed/palettes.jsonl
+    python scripts/train.py --vocab-size 64 --embedding-dim 16 --input data/processed/palettes.jsonl
 
 Produces:
     models/color_vocabulary.json   ColorVocabulary (see modeling/vocabulary.py)
     models/co_occurrence.json      CoOccurrenceModel (see modeling/co_occurrence.py)
+    models/color_embedding.json    ColorEmbedding (see modeling/embedding.py)
 
-Inference (scripts/recommend.py or library use) loads these artifacts
-rather than retraining.
+These three files are small (tens of KB total) and committed to git —
+see README's "Deploying to Render" section for why. Inference (the API,
+scripts/recommend.py, or library use) loads these artifacts rather than
+retraining.
 """
 
 from __future__ import annotations
@@ -21,10 +24,17 @@ from pathlib import Path
 
 import numpy as np
 
-from paletteml.config import DEFAULT_VOCAB_SIZE, MODELS_DIR, PROCESSED_DATA_DIR, RANDOM_SEED
+from paletteml.config import (
+    DEFAULT_EMBEDDING_DIM,
+    DEFAULT_VOCAB_SIZE,
+    MODELS_DIR,
+    PROCESSED_DATA_DIR,
+    RANDOM_SEED,
+)
 from paletteml.data.dataset import load_processed_artworks
 from paletteml.modeling.baseline import PopularityBaseline
 from paletteml.modeling.co_occurrence import CoOccurrenceModel
+from paletteml.modeling.embedding import ColorEmbedding
 from paletteml.modeling.encoding import encode_palette
 from paletteml.modeling.vocabulary import ColorVocabulary
 
@@ -32,6 +42,7 @@ from paletteml.modeling.vocabulary import ColorVocabulary
 def train(
     input_path: Path,
     vocab_size: int = DEFAULT_VOCAB_SIZE,
+    embedding_dim: int = DEFAULT_EMBEDDING_DIM,
     models_dir: Path = MODELS_DIR,
     random_state: int = RANDOM_SEED,
 ) -> None:
@@ -61,10 +72,19 @@ def train(
     observed_pairs = int(np.sum(co_occurrence.pair_counts > 0) // 2)
     density = observed_pairs / n_pairs if n_pairs else 0.0
 
+    print(f"Fitting SVD color embedding (dimension={embedding_dim})...")
+    embedding = ColorEmbedding.fit(co_occurrence, n_components=embedding_dim)
+    print(
+        f"  -> {embedding.n_components} components, "
+        f"{embedding.explained_variance_ratio:.1%} of PPMI matrix variance explained"
+    )
+
     vocab_path = models_dir / "color_vocabulary.json"
     co_path = models_dir / "co_occurrence.json"
+    embedding_path = models_dir / "color_embedding.json"
     vocabulary.save(vocab_path)
     co_occurrence.save(co_path)
+    embedding.save(embedding_path)
 
     print()
     print("=" * 60)
@@ -87,16 +107,23 @@ def train(
     print()
     print(f"Saved: {vocab_path}")
     print(f"Saved: {co_path}")
+    print(f"Saved: {embedding_path}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", type=Path, default=PROCESSED_DATA_DIR / "palettes.jsonl")
     parser.add_argument("--vocab-size", type=int, default=DEFAULT_VOCAB_SIZE)
+    parser.add_argument("--embedding-dim", type=int, default=DEFAULT_EMBEDDING_DIM)
     parser.add_argument("--models-dir", type=Path, default=MODELS_DIR)
     args = parser.parse_args()
 
-    train(input_path=args.input, vocab_size=args.vocab_size, models_dir=args.models_dir)
+    train(
+        input_path=args.input,
+        vocab_size=args.vocab_size,
+        embedding_dim=args.embedding_dim,
+        models_dir=args.models_dir,
+    )
 
 
 if __name__ == "__main__":

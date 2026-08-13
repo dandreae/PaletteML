@@ -113,24 +113,27 @@ src/paletteml/
                         dataset.py    typed read-back access (modeling stage, not yet implemented)
   color/              Dominant-color extraction (extraction.py) and
                       perceptual color-space conversion (space.py)
-  modeling/           Co-occurrence embedding (embedding.py) and
-                      recommendation (recommend.py)
-  evaluation/         Held-out color-prediction metrics + baselines
-  api/                FastAPI app (main.py) and request/response schemas
+  modeling/           vocabulary.py (K-Means color bins), co_occurrence.py (PPMI),
+                      recommend.py (direct PPMI recommender), embedding.py (SVD
+                      embedding), svd_recommend.py (cosine-similarity recommender),
+                      baseline.py / random_baseline.py (comparison baselines)
+  evaluation/         Train/test split, leave-one-out cases, Hit@K/MRR metrics,
+                      significance testing, failure-case analysis
+  api/                FastAPI app (main.py), Pydantic schemas (schemas.py) —
+                      see "Deploying to Render" below
 
-scripts/              CLI entry points: build_dataset.py, train.py, evaluate.py
-frontend/             Minimal static HTML/CSS/JS UI (no build step, no framework)
-data/                 raw/ processed/ external/  (gitignored, regenerable)
-models/               Trained model artifacts (gitignored)
-reports/              Evaluation metrics tables and figures (gitignored)
+scripts/              CLI entry points: build_dataset.py, train.py, evaluate.py, recommend.py
+frontend/             Not yet built
+data/                 raw/ processed/ external/  (gitignored, regenerable via scripts/build_dataset.py)
+models/               Trained artifacts: color_vocabulary.json, co_occurrence.json,
+                      color_embedding.json — small (tens of KB), committed to git,
+                      required at runtime by the API (see "Deploying to Render")
+reports/              evaluation_report.md (committed) + figures/metrics (gitignored, regenerable)
 notebooks/            Exploratory analysis
 tests/                pytest suite
-docker/               Dockerfile / docker-compose.yml (stubs until API works end-to-end)
+docker/               Dockerfile / docker-compose.yml (stubs — not needed for Render, see below)
+render.yaml           Render Blueprint (build/start commands, health check)
 ```
-
-All Python modules currently contain module docstrings and `TODO` /
-`NotImplementedError` stubs — the shape of the pipeline exists, none
-of the ML logic is implemented yet.
 
 ## Setup
 
@@ -156,11 +159,25 @@ Run the (currently trivial) test suite:
 pytest
 ```
 
-Run the API skeleton:
+Run the API locally (requires trained artifacts under `models/` —
+already committed, or regenerate with `python scripts/train.py`):
 
 ```bash
 uvicorn paletteml.api.main:app --reload
-# GET http://127.0.0.1:8000/health -> {"status": "ok"}
+# GET  http://127.0.0.1:8000/health    -> {"status": "ok", "model_loaded": true, ...}
+# docs http://127.0.0.1:8000/docs      -> interactive OpenAPI UI
+```
+
+Try it:
+
+```bash
+curl -X POST http://127.0.0.1:8000/recommend \
+  -H "Content-Type: application/json" \
+  -d '{"colors": ["#b23a2f"], "top_n": 5}'
+
+curl -X POST http://127.0.0.1:8000/compare \
+  -H "Content-Type: application/json" \
+  -d '{"colors": ["#2f6b8e"], "top_n": 5}'
 ```
 
 **Note on Python version:** this machine only has Python 3.14
@@ -171,15 +188,63 @@ alongside it (`py install 3.12` via the Python launcher) and creating
 the venv with `py -3.12 -m venv .venv` instead. Not needed unless
 `pip install` actually fails.
 
+## Deploying to Render
+
+The API is a plain FastAPI service — no Docker needed, Render's native
+Python runtime builds and runs it directly. `render.yaml` at the repo
+root defines this as a Blueprint; the same settings can also be entered
+by hand in the Render dashboard when creating a new Web Service.
+
+**Build command:**
+```
+pip install -r requirements.txt
+```
+
+**Start command:**
+```
+uvicorn paletteml.api.main:app --host 0.0.0.0 --port $PORT
+```
+Binding `0.0.0.0` (not `127.0.0.1`) and reading `$PORT` (not a
+hardcoded port) are both required — Render assigns the port at
+runtime and routes external traffic to it; a service bound to
+`127.0.0.1` or a fixed port is unreachable from outside its container.
+
+**Environment variables:** none are required at runtime — the API
+never calls an external service (the Art Institute of Chicago API is
+only used offline by `scripts/build_dataset.py`, not by the deployed
+service). `PYTHON_VERSION=3.12.7` is set in `render.yaml` to pin the
+build to a known-good interpreter version rather than whatever Render
+defaults to; not required for correctness, just for reproducible
+builds. No API keys or secrets are needed anywhere in this stack.
+
+**Files that must be committed before deploying:** beyond the normal
+source tree, specifically:
+- `models/color_vocabulary.json`, `models/co_occurrence.json`,
+  `models/color_embedding.json` — the trained artifacts the API loads
+  at startup (see `api/main.py`'s `lifespan`). These are small (tens
+  of KB total) and were deliberately committed rather than
+  regenerated at build time — see the note in `.gitignore` above
+  `models/*`. **If these three files aren't in the repo Render builds
+  from, the service will crash on startup** (`ColorVocabulary.load()`
+  etc. will raise `FileNotFoundError`) rather than serve a broken API.
+- `render.yaml` (or the equivalent dashboard configuration).
+- `requirements.txt` (already tracked).
+
+Health check path is `/health` — Render polls this to decide whether a
+deploy is live; it returns `model_loaded: true` plus the loaded
+vocabulary size and SVD dimension, so a passing health check is also
+confirmation the real trained model came up correctly, not just that
+the process is alive.
+
 ## Roadmap (one week)
 
-1. ~~Dataset ingest: pull ~100-500 public-domain paintings + metadata
-   from the Art Institute of Chicago API, extract palettes ->
-   `data/processed/palettes.jsonl`.~~ Done — see "Dataset" above.
-2. Co-occurrence embedding + clustering, fit on a train split.
-3. Recommendation function + held-out evaluation vs. baselines,
-   written up in `reports/`.
-4. FastAPI endpoints wired to the fitted model.
+1. ~~Dataset ingest~~ Done — see "Dataset" above.
+2. ~~Co-occurrence (PPMI) recommender + SVD embedding recommender.~~ Done —
+   `modeling/recommend.py`, `modeling/svd_recommend.py`.
+3. ~~Held-out evaluation vs. baselines, with significance testing.~~ Done —
+   `reports/evaluation_report.md`.
+4. ~~FastAPI endpoints wired to the fitted model, deployable on Render.~~ Done —
+   see "Deploying to Render" above.
 5. Static frontend calling the API.
 6. Dockerize; deploy to AWS (single small instance or App Runner /
    Elastic Beanstalk — kept simple given the timebox).

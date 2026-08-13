@@ -35,5 +35,13 @@ EXTRACTION_MAX_DIMENSION = 256
 # starting point, not yet tuned against an evaluation metric.
 DEFAULT_VOCAB_SIZE = 64
 
+# SVD embedding dimension for the color-relationship embedding
+# (modeling/embedding.py), factorized from the PPMI matrix above. 16
+# was the best-performing dimension of {8, 16, 32} tested against
+# vocab_size=64 in the evaluation stage (reports/evaluation_report.md)
+# — a measured choice, not a guess, though only that one vocab_size
+# was swept against it.
+DEFAULT_EMBEDDING_DIM = 16
+
 # --- reproducibility ---
 RANDOM_SEED = 42

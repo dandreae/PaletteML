@@ -19,8 +19,17 @@ data/external/*
 !data/processed/.gitkeep
 !data/external/.gitkeep
 
+# Trained model artifacts are small (tens of KB total) and required at
+# runtime by the deployed API (see README's "Deploying to Render"
+# section) — unlike data/ and reports/ above, these ARE committed.
+# Allow only the known artifact files explicitly, not the whole
+# directory, so a future large/binary model file doesn't get committed
+# by accident.
 models/*
 !models/.gitkeep
+!models/color_vocabulary.json
+!models/co_occurrence.json
+!models/color_embedding.json
 
 reports/figures/*
 reports/metrics/*

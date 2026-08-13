@@ -1,0 +1,15 @@
+# Render Blueprint for PaletteML's API — no Dockerfile needed, Render's
+# native Python runtime is sufficient for a single FastAPI service.
+# See README's "Deploying to Render" section for the manual
+# dashboard-configuration equivalent of this file.
+services:
+  - type: web
+    name: paletteml-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn paletteml.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
